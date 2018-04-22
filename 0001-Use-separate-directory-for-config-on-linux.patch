@@ -1,0 +1,25 @@
+From bbd45bf60fd9de2241022f8eaf6fba347f0c21c4 Mon Sep 17 00:00:00 2001
+From: Pietro Di Gennaro <pietrodig@live.com>
+Date: Fri, 15 Dec 2017 14:31:58 +0100
+Subject: [PATCH] Use separate directory for config on linux
+
+---
+ chrome/common/chrome_paths_linux.cc | 2 +-
+ 1 file changed, 1 insertion(+), 1 deletion(-)
+
+diff --git a/chrome/common/chrome_paths_linux.cc b/chrome/common/chrome_paths_linux.cc
+index fc47bd3f1241..495a49fb30f5 100644
+--- a/chrome/common/chrome_paths_linux.cc
++++ b/chrome/common/chrome_paths_linux.cc
+@@ -90,7 +90,7 @@ bool GetDefaultUserDataDirectory(base::FilePath* result) {
+ #if defined(GOOGLE_CHROME_BUILD)
+   *result = config_dir.Append("google-chrome" + GetChannelSuffixForDataDir());
+ #else
+-  *result = config_dir.Append("chromium");
++  *result = config_dir.Append("washezium");
+ #endif
+   return true;
+ }
+-- 
+2.14.3
+

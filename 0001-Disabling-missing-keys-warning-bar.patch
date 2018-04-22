@@ -1,0 +1,44 @@
+From db4ae298a177fa02e91ddbdfda9d366f681418fc Mon Sep 17 00:00:00 2001
+From: Pietro Di Gennaro <pietrodig@live.com>
+Date: Fri, 15 Dec 2017 14:11:12 +0100
+Subject: [PATCH] Disabling missing keys warning bar.
+
+---
+ chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc | 5 +++++
+ google_apis/google_api_keys.cc                                | 4 ----
+ 2 files changed, 5 insertions(+), 4 deletions(-)
+
+diff --git a/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc b/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc
+index f7af1a5abfdc..e3270c730532 100644
+--- a/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc
++++ b/chrome/browser/ui/startup/google_api_keys_infobar_delegate.cc
+@@ -14,6 +14,11 @@
+ 
+ // static
+ void GoogleApiKeysInfoBarDelegate::Create(InfoBarService* infobar_service) {
++  return;
++  
++  if (google_apis::HasKeysConfigured())
++    return;
++
+   infobar_service->AddInfoBar(infobar_service->CreateConfirmInfoBar(
+       std::unique_ptr<ConfirmInfoBarDelegate>(
+           new GoogleApiKeysInfoBarDelegate())));
+diff --git a/google_apis/google_api_keys.cc b/google_apis/google_api_keys.cc
+index 2e8437ed136e..bf38fa549a6d 100644
+--- a/google_apis/google_api_keys.cc
++++ b/google_apis/google_api_keys.cc
+@@ -22,10 +22,6 @@
+ #include "google_apis/google_api_keys_mac.h"
+ #endif
+ 
+-#if defined(GOOGLE_CHROME_BUILD) || defined(USE_OFFICIAL_GOOGLE_API_KEYS)
+-#include "google_apis/internal/google_chrome_api_keys.h"
+-#endif
+-
+ // Used to indicate an unset key/id/secret.  This works better with
+ // various unit tests than leaving the token empty.
+ #define DUMMY_API_TOKEN "dummytoken"
+-- 
+2.14.3
+

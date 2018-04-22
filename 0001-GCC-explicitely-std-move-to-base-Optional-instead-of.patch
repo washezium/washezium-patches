@@ -1,0 +1,316 @@
+From 5185d90fdca3d06d663ab5711676bfcf22224ba2 Mon Sep 17 00:00:00 2001
+From: Jose Dapena Paz <jose.dapena@lge.com>
+Date: Tue, 6 Mar 2018 02:13:13 +0000
+Subject: [PATCH] GCC: explicitely std::move to base::Optional instead of
+ implicit conversion to base::Optional in return
+
+GCC 7.2/7.3 complains in this pattern of code:
+base::Optional<Foo>
+Method() {
+  ...
+  Foo response;
+  ...
+  return response;
+}
+
+It seems it cannot properly resolve the implicit move to base::Optional, and
+ends up failing to compile. To avoid that, this change explicitely moves to
+base::Optional as return value:
+  return base::Optional<Foo>(std::move(response));
+
+Change-Id: Ic0390e1c31340dc34a71bb4175bd63a4631248d6
+Reviewed-on: https://chromium-review.googlesource.com/944402
+Commit-Queue: Victor Costan <pwnall@chromium.org>
+Reviewed-by: Matt Falkenhagen <falken@chromium.org>
+Reviewed-by: Victor Costan <pwnall@chromium.org>
+Reviewed-by: Reilly Grant <reillyg@chromium.org>
+Cr-Commit-Position: refs/heads/master@{#541029}
+---
+ .../browser/appcache/appcache_request_handler.cc   |   2 +-
+ .../service_worker_controllee_request_handler.cc   |   2 +-
+ device/fido/device_response_converter.cc           | 247 +++++++++++++++++++++
+ 3 files changed, 249 insertions(+), 2 deletions(-)
+ create mode 100644 device/fido/device_response_converter.cc
+
+diff --git a/content/browser/appcache/appcache_request_handler.cc b/content/browser/appcache/appcache_request_handler.cc
+index 620b1d55fb8c..ef637a76a802 100644
+--- a/content/browser/appcache/appcache_request_handler.cc
++++ b/content/browser/appcache/appcache_request_handler.cc
+@@ -639,7 +639,7 @@ AppCacheRequestHandler::MaybeCreateSubresourceLoaderParams() {
+ 
+   SubresourceLoaderParams params;
+   params.loader_factory_info = factory_ptr.PassInterface();
+-  return params;
++  return base::Optional<SubresourceLoaderParams>(std::move(params));
+ }
+ 
+ void AppCacheRequestHandler::MaybeCreateSubresourceLoader(
+diff --git a/content/browser/service_worker/service_worker_controllee_request_handler.cc b/content/browser/service_worker/service_worker_controllee_request_handler.cc
+index d6b28d21b765..968a70421f41 100644
+--- a/content/browser/service_worker/service_worker_controllee_request_handler.cc
++++ b/content/browser/service_worker/service_worker_controllee_request_handler.cc
+@@ -271,7 +271,7 @@ ServiceWorkerControlleeRequestHandler::MaybeCreateSubresourceLoaderParams() {
+   controller_info->object_info = provider_host_->GetOrCreateServiceWorkerHandle(
+       provider_host_->controller());
+   params.controller_service_worker_info = std::move(controller_info);
+-  return params;
++  return base::Optional<SubresourceLoaderParams>(std::move(params));
+ }
+ 
+ void ServiceWorkerControlleeRequestHandler::PrepareForMainResource(
+diff --git a/device/fido/device_response_converter.cc b/device/fido/device_response_converter.cc
+new file mode 100644
+index 000000000000..096f9f44872b
+--- /dev/null
++++ b/device/fido/device_response_converter.cc
+@@ -0,0 +1,247 @@
++// Copyright 2018 The Chromium Authors. All rights reserved.
++// Use of this source code is governed by a BSD-style license that can be
++// found in the LICENSE file.
++
++#include "device/fido/device_response_converter.h"
++
++#include <string>
++#include <utility>
++
++#include "base/numerics/safe_conversions.h"
++#include "base/optional.h"
++#include "base/stl_util.h"
++#include "components/cbor/cbor_reader.h"
++#include "components/cbor/cbor_writer.h"
++#include "device/fido/authenticator_supported_options.h"
++#include "device/fido/ctap_constants.h"
++
++namespace device {
++
++using CBOR = cbor::CBORValue;
++
++CtapDeviceResponseCode GetResponseCode(const std::vector<uint8_t>& buffer) {
++  if (buffer.empty())
++    return CtapDeviceResponseCode::kCtap2ErrInvalidCBOR;
++
++  auto code = static_cast<CtapDeviceResponseCode>(buffer[0]);
++  return base::ContainsValue(GetCtapResponseCodeList(), code)
++             ? code
++             : CtapDeviceResponseCode::kCtap2ErrInvalidCBOR;
++}
++
++// Decodes byte array response from authenticator to CBOR value object and
++// checks for correct encoding format. Then re-serialize the decoded CBOR value
++// to byte array in format specified by the WebAuthN spec (i.e the keys for
++// CBOR map value are converted from unsigned integers to string type.)
++base::Optional<AuthenticatorMakeCredentialResponse>
++ReadCTAPMakeCredentialResponse(CtapDeviceResponseCode response_code,
++                               const std::vector<uint8_t>& buffer) {
++  base::Optional<CBOR> decoded_response = cbor::CBORReader::Read(buffer);
++
++  if (!decoded_response || !decoded_response->is_map())
++    return base::nullopt;
++
++  const auto& decoded_map = decoded_response->GetMap();
++  CBOR::MapValue response_map;
++
++  auto it = decoded_map.find(CBOR(1));
++  if (it == decoded_map.end() || !it->second.is_string())
++    return base::nullopt;
++
++  response_map[CBOR("fmt")] = it->second.Clone();
++
++  it = decoded_map.find(CBOR(2));
++  if (it == decoded_map.end() || !it->second.is_bytestring())
++    return base::nullopt;
++
++  response_map[CBOR("authData")] = it->second.Clone();
++
++  it = decoded_map.find(CBOR(3));
++  if (it == decoded_map.end() || !it->second.is_map())
++    return base::nullopt;
++
++  response_map[CBOR("attStmt")] = it->second.Clone();
++
++  auto attestation_object =
++      cbor::CBORWriter::Write(CBOR(std::move(response_map)));
++  if (!attestation_object)
++    return base::nullopt;
++
++  return AuthenticatorMakeCredentialResponse(response_code,
++                                             std::move(*attestation_object));
++}
++
++base::Optional<AuthenticatorGetAssertionResponse> ReadCTAPGetAssertionResponse(
++    CtapDeviceResponseCode response_code,
++    const std::vector<uint8_t>& buffer) {
++  base::Optional<CBOR> decoded_response = cbor::CBORReader::Read(buffer);
++
++  if (!decoded_response || !decoded_response->is_map())
++    return base::nullopt;
++
++  auto& response_map = decoded_response->GetMap();
++
++  auto it = response_map.find(CBOR(4));
++  if (it == response_map.end() || !it->second.is_map())
++    return base::nullopt;
++
++  auto user = PublicKeyCredentialUserEntity::CreateFromCBORValue(it->second);
++  if (!user)
++    return base::nullopt;
++
++  it = response_map.find(CBOR(2));
++  if (it == response_map.end() || !it->second.is_bytestring())
++    return base::nullopt;
++  auto auth_data = it->second.GetBytestring();
++
++  it = response_map.find(CBOR(3));
++  if (it == response_map.end() || !it->second.is_bytestring())
++    return base::nullopt;
++  auto signature = it->second.GetBytestring();
++
++  AuthenticatorGetAssertionResponse response(
++      response_code, std::move(auth_data), std::move(signature),
++      std::move(*user));
++
++  it = response_map.find(CBOR(1));
++  if (it != response_map.end()) {
++    auto descriptor =
++        PublicKeyCredentialDescriptor::CreateFromCBORValue(it->second);
++    if (!descriptor)
++      return base::nullopt;
++
++    response.SetCredential(std::move(*descriptor));
++  }
++
++  it = response_map.find(CBOR(5));
++  if (it != response_map.end()) {
++    if (!it->second.is_unsigned())
++      return base::nullopt;
++
++    response.SetNumCredentials(it->second.GetUnsigned());
++  }
++
++  return base::Optional<AuthenticatorGetAssertionResponse>(std::move(response));
++}
++
++base::Optional<AuthenticatorGetInfoResponse> ReadCTAPGetInfoResponse(
++    CtapDeviceResponseCode response_code,
++    const std::vector<uint8_t>& buffer) {
++  base::Optional<CBOR> decoded_response = cbor::CBORReader::Read(buffer);
++
++  if (!decoded_response || !decoded_response->is_map())
++    return base::nullopt;
++
++  const auto& response_map = decoded_response->GetMap();
++
++  auto it = response_map.find(CBOR(1));
++  if (it == response_map.end() || !it->second.is_array())
++    return base::nullopt;
++
++  std::vector<std::string> versions;
++  for (const auto& version : it->second.GetArray()) {
++    if (!version.is_string())
++      return base::nullopt;
++
++    versions.push_back(version.GetString());
++  }
++
++  it = response_map.find(CBOR(3));
++  if (it == response_map.end() || !it->second.is_bytestring())
++    return base::nullopt;
++
++  AuthenticatorGetInfoResponse response(response_code, std::move(versions),
++                                        it->second.GetBytestring());
++
++  it = response_map.find(CBOR(2));
++  if (it != response_map.end()) {
++    if (!it->second.is_array())
++      return base::nullopt;
++
++    std::vector<std::string> extensions;
++    for (const auto& extension : it->second.GetArray()) {
++      if (!extension.is_string())
++        return base::nullopt;
++
++      extensions.push_back(extension.GetString());
++    }
++    response.SetExtensions(std::move(extensions));
++  }
++
++  it = response_map.find(CBOR(4));
++  if (it != response_map.end()) {
++    if (!it->second.is_map())
++      return base::nullopt;
++
++    const auto& option_map = it->second.GetMap();
++    AuthenticatorSupportedOptions options;
++
++    auto option_map_it = option_map.find(CBOR("plat"));
++    if (option_map_it != option_map.end()) {
++      if (!option_map_it->second.is_bool())
++        return base::nullopt;
++
++      options.SetIsPlatformDevice(option_map_it->second.GetBool());
++    }
++
++    option_map_it = option_map.find(CBOR("rk"));
++    if (option_map_it != option_map.end()) {
++      if (!option_map_it->second.is_bool())
++        return base::nullopt;
++
++      options.SetSupportsResidentKey(option_map_it->second.GetBool());
++    }
++
++    option_map_it = option_map.find(CBOR("up"));
++    if (option_map_it != option_map.end()) {
++      if (!option_map_it->second.is_bool())
++        return base::nullopt;
++
++      options.SetUserPresenceRequired(option_map_it->second.GetBool());
++    }
++
++    option_map_it = option_map.find(CBOR("uv"));
++    if (option_map_it != option_map.end()) {
++      if (!option_map_it->second.is_bool())
++        return base::nullopt;
++
++      options.SetUserVerificationRequired(option_map_it->second.GetBool());
++    }
++
++    option_map_it = option_map.find(CBOR("client_pin"));
++    if (option_map_it != option_map.end()) {
++      if (!option_map_it->second.is_bool())
++        return base::nullopt;
++
++      options.SetClientPinStored(option_map_it->second.GetBool());
++    }
++    response.SetOptions(std::move(options));
++  }
++
++  it = response_map.find(CBOR(5));
++  if (it != response_map.end()) {
++    if (!it->second.is_unsigned())
++      return base::nullopt;
++
++    response.SetMaxMsgSize(it->second.GetUnsigned());
++  }
++
++  it = response_map.find(CBOR(6));
++  if (it != response_map.end()) {
++    if (!it->second.is_array())
++      return base::nullopt;
++
++    std::vector<uint8_t> supported_pin_protocols;
++    for (const auto& protocol : it->second.GetArray()) {
++      if (!protocol.is_unsigned())
++        return base::nullopt;
++
++      supported_pin_protocols.push_back(protocol.GetUnsigned());
++    }
++    response.SetPinProtocols(std::move(supported_pin_protocols));
++  }
++
++  return base::Optional<AuthenticatorGetInfoResponse>(std::move(response));
++}
++
++}  // namespace device
+-- 
+2.14.3
+

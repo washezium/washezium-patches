@@ -1,0 +1,20 @@
+From 53ee63c142b8e6d3d825c00dde9f499a6c15280b Mon Sep 17 00:00:00 2001
+From: Jan Engelhardt <jengelh@inai.de>
+Date: Fri, 29 May 2015 15:55:42 +0200
+Subject: [PATCH] spellchecker: flag downloading dictionary from Google
+
+---
+ missing-ft | 1 +
+ 1 file changed, 1 insertion(+)
+ create mode 100644 missing-ft
+
+diff --git a/missing-ft b/missing-ft
+new file mode 100644
+index 000000000000..54a7bbe05a09
+--- /dev/null
++++ b/missing-ft
+@@ -0,0 +1 @@
++spellchecker: flag downloading dictionary from Google
+-- 
+2.14.3
+

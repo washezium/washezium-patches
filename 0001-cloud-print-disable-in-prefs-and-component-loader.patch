@@ -1,0 +1,64 @@
+From ef8090cc0fe81d4f6ae7a94ee344db7fb15a1905 Mon Sep 17 00:00:00 2001
+From: Jan Engelhardt <jengelh@inai.de>
+Date: Sat, 13 Sep 2014 16:55:12 +0200
+Subject: [PATCH] cloud-print: disable in prefs and component loader
+
+Cloud Print should normally be autodisabled if no printers are shared.
+But maybe that is not enough(?) Probably also needs to gain a checkbox
+in the settings. Revisit..]
+
+Also changes the setting for notifications about new cloud printers to
+be off by default.
+---
+ chrome/browser/extensions/component_loader.cc                 | 2 ++
+ chrome/browser/ui/browser_ui_prefs.cc                         | 2 +-
+ chrome/browser/ui/webui/local_discovery/local_discovery_ui.cc | 4 ----
+ 3 files changed, 3 insertions(+), 5 deletions(-)
+
+diff --git a/chrome/browser/extensions/component_loader.cc b/chrome/browser/extensions/component_loader.cc
+index ca8d6f42fc32..aa175db53c4a 100644
+--- a/chrome/browser/extensions/component_loader.cc
++++ b/chrome/browser/extensions/component_loader.cc
+@@ -481,9 +481,11 @@ void ComponentLoader::AddDefaultComponentExtensions(
+         base::FilePath(FILE_PATH_LITERAL("bookmark_manager")));
+   }
+ #if BUILDFLAG(ENABLE_PRINTING)
++#if 0 /* IRIDIUM */
+   // Cloud Print component app. Not required on Chrome OS.
+   Add(IDR_CLOUDPRINT_MANIFEST,
+       base::FilePath(FILE_PATH_LITERAL("cloud_print")));
++#endif
+ #endif  // BUILDFLAG(ENABLE_PRINTING)
+ #endif  // defined(OS_CHROMEOS)
+ 
+diff --git a/chrome/browser/ui/browser_ui_prefs.cc b/chrome/browser/ui/browser_ui_prefs.cc
+index e94149be1cb2..e713f7e3fac5 100644
+--- a/chrome/browser/ui/browser_ui_prefs.cc
++++ b/chrome/browser/ui/browser_ui_prefs.cc
+@@ -63,7 +63,7 @@ void RegisterBrowserUserPrefs(user_prefs::PrefRegistrySyncable* registry) {
+       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+   registry->RegisterStringPref(prefs::kCloudPrintEmail, std::string());
+   registry->RegisterBooleanPref(prefs::kCloudPrintProxyEnabled, true);
+-  registry->RegisterBooleanPref(prefs::kCloudPrintSubmitEnabled, true);
++  registry->RegisterBooleanPref(prefs::kCloudPrintSubmitEnabled, false);
+   registry->RegisterBooleanPref(prefs::kDevToolsDisabled, false);
+   registry->RegisterDictionaryPref(prefs::kBrowserWindowPlacement);
+   registry->RegisterDictionaryPref(prefs::kBrowserWindowPlacementPopup);
+diff --git a/chrome/browser/ui/webui/local_discovery/local_discovery_ui.cc b/chrome/browser/ui/webui/local_discovery/local_discovery_ui.cc
+index 44c818a989c2..7593c92c880e 100644
+--- a/chrome/browser/ui/webui/local_discovery/local_discovery_ui.cc
++++ b/chrome/browser/ui/webui/local_discovery/local_discovery_ui.cc
+@@ -144,10 +144,6 @@ void LocalDiscoveryUI::RegisterProfilePrefs(
+     user_prefs::PrefRegistrySyncable* registry) {
+   registry->RegisterBooleanPref(
+       prefs::kLocalDiscoveryNotificationsEnabled,
+-#if defined(OS_WIN)
+       false,
+-#else
+-      true,
+-#endif
+       user_prefs::PrefRegistrySyncable::SYNCABLE_PREF);
+ }
+-- 
+2.14.3
+

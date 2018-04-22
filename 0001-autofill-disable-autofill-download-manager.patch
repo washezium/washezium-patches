@@ -1,0 +1,93 @@
+From 01f57a001469b1e663fba8e5366674780bfcfb4c Mon Sep 17 00:00:00 2001
+From: Jan Engelhardt <jengelh@inai.de>
+Date: Thu, 11 Sep 2014 16:37:32 +0200
+Subject: [PATCH] autofill: disable autofill download manager
+
+Disables the autofill download manager (trk:158).
+---
+ .../core/browser/autofill_download_manager.cc      |  2 +-
+ .../autofill/core/browser/autofill_manager.cc      | 55 ++++++++++++++++++++--
+ 2 files changed, 51 insertions(+), 6 deletions(-)
+
+diff --git a/components/autofill/core/browser/autofill_download_manager.cc b/components/autofill/core/browser/autofill_download_manager.cc
+index 7b1be675a5a1..e8192a0e2e30 100644
+--- a/components/autofill/core/browser/autofill_download_manager.cc
++++ b/components/autofill/core/browser/autofill_download_manager.cc
+@@ -158,7 +158,7 @@ std::string RequestTypeToString(AutofillDownloadManager::RequestType type) {
+ }
+ 
+ GURL GetRequestUrl(AutofillDownloadManager::RequestType request_type) {
+-  return GURL("https://clients1.google.com/tbproxy/af/" +
++  return GURL("trk:158:https://clients1.google.com/tbproxy/af/" +
+               RequestTypeToString(request_type) + "?client=" + kClientName);
+ }
+ 
+diff --git a/components/autofill/core/browser/autofill_manager.cc b/components/autofill/core/browser/autofill_manager.cc
+index 50180a1c2c9d..c4c2ccacd63f 100644
+--- a/components/autofill/core/browser/autofill_manager.cc
++++ b/components/autofill/core/browser/autofill_manager.cc
+@@ -197,11 +197,56 @@ AutofillManager::AutofillManager(
+     AutofillClient* client,
+     const std::string& app_locale,
+     AutofillDownloadManagerState enable_download_manager)
+-    : AutofillManager(driver,
+-                      client,
+-                      client->GetPersonalDataManager(),
+-                      app_locale,
+-                      enable_download_manager) {}
++    : AutofillHandler(driver),
++      client_(client),
++      payments_client_(base::MakeUnique<payments::PaymentsClient>(
++          driver->GetURLRequestContext(),
++          this)),
++      app_locale_(app_locale),
++      personal_data_(client->GetPersonalDataManager()),
++      autocomplete_history_manager_(
++          base::MakeUnique<AutocompleteHistoryManager>(driver, client)),
++      form_interactions_ukm_logger_(
++          base::MakeUnique<AutofillMetrics::FormInteractionsUkmLogger>(
++              client->GetUkmRecorder())),
++      address_form_event_logger_(
++          base::MakeUnique<AutofillMetrics::FormEventLogger>(
++              false /* is_for_credit_card */,
++              form_interactions_ukm_logger_.get())),
++      credit_card_form_event_logger_(
++          base::MakeUnique<AutofillMetrics::FormEventLogger>(
++              true /* is_for_credit_card */,
++              form_interactions_ukm_logger_.get())),
++      has_logged_autofill_enabled_(false),
++      has_logged_address_suggestions_count_(false),
++      did_show_suggestions_(false),
++      user_did_type_(false),
++      user_did_autofill_(false),
++      user_did_edit_autofilled_field_(false),
++      user_did_accept_upload_prompt_(false),
++      should_cvc_be_requested_(false),
++      found_cvc_field_(false),
++      found_value_in_cvc_field_(false),
++      found_cvc_value_in_non_cvc_field_(false),
++      enable_ablation_logging_(false),
++      external_delegate_(NULL),
++      test_delegate_(NULL),
++#if defined(OS_ANDROID) || defined(OS_IOS)
++      autofill_assistant_(this),
++#endif
++      weak_ptr_factory_(this) {
++#if 0
++  if (enable_download_manager == ENABLE_AUTOFILL_DOWNLOAD_MANAGER) {
++    download_manager_.reset(new AutofillDownloadManager(driver, this));
++  }
++#endif
++  CountryNames::SetLocaleString(app_locale_);
++  if (personal_data_ && client_)
++    personal_data_->OnSyncServiceInitialized(client_->GetSyncService());
++
++  if (personal_data_ && driver)
++    personal_data_->SetURLRequestContextGetter(driver->GetURLRequestContext());
++}
+ 
+ AutofillManager::~AutofillManager() {}
+ 
+-- 
+2.14.3
+
