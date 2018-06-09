@@ -263,8 +263,6 @@ index 084675ab196b..8604d61ac803 100644
 +++ b/content/browser/child_process_security_policy_impl.cc
 @@ -350,6 +350,7 @@ ChildProcessSecurityPolicyImpl::ChildProcessSecurityPolicyImpl() {
    RegisterPseudoScheme(kViewSourceScheme);
-   RegisterPseudoScheme(url::kHttpSuboriginScheme);
-   RegisterPseudoScheme(url::kHttpsSuboriginScheme);
 +  RegisterPseudoScheme(url::kTraceScheme);
  }
  
@@ -487,7 +485,7 @@ index 8cef4d5f0d17..8eb15f83b90f 100644
 +		(*trace_urlreq_cb)("URLRequest", url);
 +  if (url.scheme() == url::kTraceScheme)
 +		url_chain_[0] = url.strip_trk();
-+  context->InsertURLRequest(this);
++  context->url_requests()->insert(this);
    net_log_.BeginEvent(
        NetLogEventType::REQUEST_ALIVE,
        base::Bind(&NetLogURLRequestConstructorCallback, &url, priority_));
